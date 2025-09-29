@@ -38,7 +38,7 @@ Transform natural language into executable shell commands, or get detailed expla
 
 ```bash
 # Clone the plugin
-git clone https://github.com/yourusername/zsh-claude ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-claude
+git clone https://github.com/HundredAcreStudio/zsh-claude ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-claude
 
 # Add to your ~/.zshrc plugins list
 plugins=(... zsh-claude)
@@ -51,7 +51,7 @@ source ~/.zshrc
 
 ```bash
 # Add to ~/.zshrc
-zinit load yourusername/zsh-claude
+zinit load HundredAcreStudio/zsh-claude
 
 # Reload shell
 source ~/.zshrc
@@ -61,7 +61,7 @@ source ~/.zshrc
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/zsh-claude ~/.zsh-claude
+git clone https://github.com/HundredAcreStudio/zsh-claude ~/.zsh-claude
 
 # Add to ~/.zshrc
 echo 'source ~/.zsh-claude/zsh-claude.plugin.zsh' >> ~/.zshrc
@@ -77,12 +77,12 @@ source ~/.zshrc
 
 **Antigen:**
 ```bash
-antigen bundle yourusername/zsh-claude
+antigen bundle HundredAcreStudio/zsh-claude
 ```
 
 **Zplug:**
 ```bash
-zplug "yourusername/zsh-claude"
+zplug "HundredAcreStudio/zsh-claude"
 ```
 
 </details>
@@ -175,23 +175,6 @@ claude-explain "tar -czf archive.tar.gz *.jpg"
 # Reconfigure settings
 claude-setup
 ```
-
-## Customization
-
-### Custom Keybindings
-
-To use different keybindings, add these lines to your `~/.zshrc` after loading the plugin:
-
-```bash
-# Custom keybindings example
-bindkey "^[s" zsh_claude_suggest   # Alt+s for suggestions
-bindkey "^[e" zsh_claude_explain   # Alt+e for explanations
-```
-
-### Available Widgets
-
-- `zsh_claude_suggest`: Generate command suggestions
-- `zsh_claude_explain`: Explain current command
 
 ## 🎨 Customization
 

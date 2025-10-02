@@ -19,6 +19,7 @@ typeset -g ZSH_CLAUDE_API_KEY=""
 typeset -g ZSH_CLAUDE_API_URL="https://api.anthropic.com/v1/messages"
 typeset -g ZSH_CLAUDE_MODEL="claude-3-5-haiku-20241022"
 typeset -g ZSH_CLAUDE_MAX_TOKENS="1000"
+typeset -g ZSH_CLAUDE_USE_LITELLM="false"
 
 # Load configuration from file
 _zsh_claude_load_config() {
@@ -36,6 +37,7 @@ ZSH_CLAUDE_API_KEY="$ZSH_CLAUDE_API_KEY"
 ZSH_CLAUDE_API_URL="$ZSH_CLAUDE_API_URL"
 ZSH_CLAUDE_MODEL="$ZSH_CLAUDE_MODEL"
 ZSH_CLAUDE_MAX_TOKENS="$ZSH_CLAUDE_MAX_TOKENS"
+ZSH_CLAUDE_USE_LITELLM="$ZSH_CLAUDE_USE_LITELLM"
 EOF
 }
 
@@ -90,6 +92,38 @@ _zsh_claude_setup() {
         fi
     fi
 
+    # LiteLLM proxy configuration
+    printf "\n${ZSH_CLAUDE_BLUE}LiteLLM Proxy Configuration:${ZSH_CLAUDE_NC}\n"
+    printf "Do you want to use LiteLLM proxy? [y/N]: "
+    local use_litellm
+    read use_litellm
+    if [[ "$use_litellm" =~ ^[Yy]$ ]]; then
+        ZSH_CLAUDE_USE_LITELLM="true"
+        printf "${ZSH_CLAUDE_GREEN}✓ LiteLLM proxy enabled${ZSH_CLAUDE_NC}\n"
+
+        printf "\nEnter LiteLLM proxy URL (e.g., http://localhost:4000/v1/messages): "
+        local proxy_url
+        read proxy_url
+        if [[ -n "$proxy_url" ]]; then
+            ZSH_CLAUDE_API_URL="$proxy_url"
+            printf "${ZSH_CLAUDE_GREEN}✓ Proxy URL set to: $proxy_url${ZSH_CLAUDE_NC}\n"
+        else
+            printf "${ZSH_CLAUDE_YELLOW}No URL entered, keeping current: $ZSH_CLAUDE_API_URL${ZSH_CLAUDE_NC}\n"
+        fi
+    else
+        ZSH_CLAUDE_USE_LITELLM="false"
+        # Reset to default Anthropic API if not using LiteLLM
+        if [[ "$ZSH_CLAUDE_API_URL" != "https://api.anthropic.com/v1/messages" ]]; then
+            printf "Reset API URL to Anthropic default? [Y/n]: "
+            local reset_url
+            read reset_url
+            if [[ ! "$reset_url" =~ ^[Nn]$ ]]; then
+                ZSH_CLAUDE_API_URL="https://api.anthropic.com/v1/messages"
+                printf "${ZSH_CLAUDE_GREEN}✓ API URL reset to default${ZSH_CLAUDE_NC}\n"
+            fi
+        fi
+    fi
+
     # Model selection
     printf "\n${ZSH_CLAUDE_BLUE}Choose a Claude model:${ZSH_CLAUDE_NC}\n"
 
@@ -98,13 +132,15 @@ _zsh_claude_setup() {
         "claude-3-5-haiku-20241022") current_choice=" ${ZSH_CLAUDE_GREEN}[Current]${ZSH_CLAUDE_NC}" ;;
         "claude-3-7-sonnet-20250219") current_choice="" ;;
         "claude-sonnet-4-20250514") current_choice="" ;;
+        "claude-sonnet-4-5-20250929") current_choice="" ;;
         "claude-opus-4-1-20250805") current_choice="" ;;
     esac
 
     printf "1) claude-3-5-haiku-20241022    (Fast, cost-effective)$([[ "$ZSH_CLAUDE_MODEL" == "claude-3-5-haiku-20241022" ]] && printf " ${ZSH_CLAUDE_GREEN}[Current]${ZSH_CLAUDE_NC}" || printf " ${ZSH_CLAUDE_GREEN}[Recommended]${ZSH_CLAUDE_NC}")\n"
     printf "2) claude-3-7-sonnet-20250219   (Balanced performance)$([[ "$ZSH_CLAUDE_MODEL" == "claude-3-7-sonnet-20250219" ]] && printf " ${ZSH_CLAUDE_GREEN}[Current]${ZSH_CLAUDE_NC}")\n"
     printf "3) claude-sonnet-4-20250514     (Most capable, higher cost)$([[ "$ZSH_CLAUDE_MODEL" == "claude-sonnet-4-20250514" ]] && printf " ${ZSH_CLAUDE_GREEN}[Current]${ZSH_CLAUDE_NC}")\n"
-    printf "4) claude-opus-4-1-20250805     (Premium, highest cost)$([[ "$ZSH_CLAUDE_MODEL" == "claude-opus-4-1-20250805" ]] && printf " ${ZSH_CLAUDE_GREEN}[Current]${ZSH_CLAUDE_NC}")\n"
+    printf "4) claude-sonnet-4-5-20250929   (Latest Sonnet 4.5)$([[ "$ZSH_CLAUDE_MODEL" == "claude-sonnet-4-5-20250929" ]] && printf " ${ZSH_CLAUDE_GREEN}[Current]${ZSH_CLAUDE_NC}")\n"
+    printf "5) claude-opus-4-1-20250805     (Premium, highest cost)$([[ "$ZSH_CLAUDE_MODEL" == "claude-opus-4-1-20250805" ]] && printf " ${ZSH_CLAUDE_GREEN}[Current]${ZSH_CLAUDE_NC}")\n"
 
     # Set default based on current model
     local default_choice=1
@@ -112,10 +148,11 @@ _zsh_claude_setup() {
         "claude-3-5-haiku-20241022") default_choice=1 ;;
         "claude-3-7-sonnet-20250219") default_choice=2 ;;
         "claude-sonnet-4-20250514") default_choice=3 ;;
-        "claude-opus-4-1-20250805") default_choice=4 ;;
+        "claude-sonnet-4-5-20250929") default_choice=4 ;;
+        "claude-opus-4-1-20250805") default_choice=5 ;;
     esac
 
-    printf "\nEnter your choice [1-4] (default: $default_choice): "
+    printf "\nEnter your choice [1-5] (default: $default_choice): "
 
     local choice
     read choice
@@ -135,6 +172,10 @@ _zsh_claude_setup() {
             printf "Selected: Claude Sonnet 4 (high performance)\n"
             ;;
         4)
+            ZSH_CLAUDE_MODEL="claude-sonnet-4-5-20250929"
+            printf "Selected: Claude Sonnet 4.5 (latest model)\n"
+            ;;
+        5)
             ZSH_CLAUDE_MODEL="claude-opus-4-1-20250805"
             printf "Selected: Claude Opus 4.1 (premium)\n"
             ;;
@@ -218,11 +259,19 @@ _zsh_claude_api_call() {
             ]
         }')
 
-    curl -s -X POST "$ZSH_CLAUDE_API_URL" \
-        -H "Content-Type: application/json" \
-        -H "x-api-key: $ZSH_CLAUDE_API_KEY" \
-        -H "anthropic-version: 2023-06-01" \
-        -d "$json_payload" > "$temp_file"
+    # Use different headers based on whether LiteLLM is enabled
+    if [[ "$ZSH_CLAUDE_USE_LITELLM" == "true" ]]; then
+        curl -s -X POST "$ZSH_CLAUDE_API_URL" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $ZSH_CLAUDE_API_KEY" \
+            -d "$json_payload" > "$temp_file"
+    else
+        curl -s -X POST "$ZSH_CLAUDE_API_URL" \
+            -H "Content-Type: application/json" \
+            -H "x-api-key: $ZSH_CLAUDE_API_KEY" \
+            -H "anthropic-version: 2023-06-01" \
+            -d "$json_payload" > "$temp_file"
+    fi
 }
 
 # Extract content from Claude API response

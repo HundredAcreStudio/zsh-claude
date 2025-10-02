@@ -97,13 +97,15 @@ claude-setup
 
 This interactive setup will:
 1. Prompt for your Claude API key
-2. Let you choose your preferred AI model
-3. Save configuration securely to `~/.config/zsh-claude/config`
+2. Optional: Configure LiteLLM proxy support
+3. Let you choose your preferred AI model
+4. Save configuration securely to `~/.config/zsh-claude/config`
 
 **Available Models:**
 - **Claude 3.5 Haiku** (fast, cost-effective) - Recommended
 - **Claude 3.7 Sonnet** (balanced performance)
 - **Claude Sonnet 4** (high performance, higher cost)
+- **Claude Sonnet 4.5** (latest model)
 - **Claude Opus 4.1** (premium, highest cost)
 
 ## 🎯 Usage
@@ -209,7 +211,24 @@ ZSH_CLAUDE_API_KEY="your-api-key"
 ZSH_CLAUDE_MODEL="claude-3-5-haiku-20241022"
 ZSH_CLAUDE_API_URL="https://api.anthropic.com/v1/messages"
 ZSH_CLAUDE_MAX_TOKENS="1000"
+ZSH_CLAUDE_USE_LITELLM="false"
 ```
+
+### LiteLLM Proxy Support
+
+zsh-claude supports [LiteLLM proxy](https://github.com/BerriAI/litellm) for using alternative LLM providers or custom endpoints:
+
+```bash
+# Run claude-setup and select LiteLLM proxy option
+claude-setup
+
+# Or manually configure in ~/.config/zsh-claude/config:
+ZSH_CLAUDE_USE_LITELLM="true"
+ZSH_CLAUDE_API_URL="http://localhost:4000/v1/messages"
+ZSH_CLAUDE_API_KEY="your-litellm-key"
+```
+
+When LiteLLM mode is enabled, the plugin automatically uses OpenAI-compatible authentication (`Authorization: Bearer`) instead of Anthropic's native format.
 
 ### Environment Variables
 

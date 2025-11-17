@@ -293,6 +293,22 @@ _zsh_claude_extract_content() {
     jq -r '.content[0].text // empty' "$response_file" 2>/dev/null
 }
 
+# Strip markdown code blocks from content
+_zsh_claude_strip_markdown() {
+    local content="$1"
+
+    # Remove opening ```bash or ``` and closing ```
+    content="${content#\`\`\`bash}"
+    content="${content#\`\`\`}"
+    content="${content%\`\`\`}"
+
+    # Trim leading and trailing whitespace/newlines
+    content="${content#"${content%%[![:space:]]*}"}"
+    content="${content%"${content##*[![:space:]]}"}"
+
+    echo "$content"
+}
+
 # Generate command suggestions using Claude AI
 zsh_claude_suggest() {
     if ! _zsh_claude_check_dependencies; then
@@ -335,6 +351,7 @@ zsh_claude_suggest() {
     local suggestion
     if [[ $exit_code -eq 0 ]]; then
         suggestion=$(_zsh_claude_extract_content "$ZSH_CLAUDE_TEMP_FILE")
+        suggestion=$(_zsh_claude_strip_markdown "$suggestion")
     fi
 
     # Clean up temp file
@@ -455,6 +472,7 @@ claude-suggest() {
 
     _zsh_claude_api_call "$query" "$system_prompt" "$temp_file"
     local suggestion=$(_zsh_claude_extract_content "$temp_file")
+    suggestion=$(_zsh_claude_strip_markdown "$suggestion")
     rm -f "$temp_file"
 
     if [[ -n "$suggestion" ]]; then

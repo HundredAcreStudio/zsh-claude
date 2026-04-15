@@ -3,7 +3,6 @@
 # zsh-claude - Standalone AI-powered command line assistant for Zsh
 # Provides intelligent command suggestions and explanations using Claude AI
 
-typeset -g ZSH_CLAUDE_TEMP_FILE
 typeset -g ZSH_CLAUDE_CONFIG_DIR="${HOME}/.config/zsh-claude"
 typeset -g ZSH_CLAUDE_CONFIG_FILE="${ZSH_CLAUDE_CONFIG_DIR}/config"
 
@@ -21,6 +20,13 @@ typeset -g ZSH_CLAUDE_MODEL="claude-3-5-haiku-20241022"
 typeset -g ZSH_CLAUDE_MAX_TOKENS="1000"
 typeset -g ZSH_CLAUDE_USE_LITELLM="false"
 
+# System prompts
+typeset -g ZSH_CLAUDE_SUGGEST_PROMPT="You are a command-line assistant. Given a natural language description or partial command, provide a single, executable shell command that accomplishes the task. Respond with ONLY the command, no explanations or additional text."
+typeset -g ZSH_CLAUDE_EXPLAIN_PROMPT="You are a command-line expert. Explain what the given shell command does in clear, concise terms. Include what each part of the command does and any important notes about usage or potential risks."
+
+# Cached dependency check result
+typeset -g _ZSH_CLAUDE_DEPS_CHECKED=""
+
 # Load configuration from file
 _zsh_claude_load_config() {
     if [[ -f "$ZSH_CLAUDE_CONFIG_FILE" ]]; then
@@ -31,6 +37,7 @@ _zsh_claude_load_config() {
 # Save configuration to file
 _zsh_claude_save_config() {
     mkdir -p "$ZSH_CLAUDE_CONFIG_DIR"
+    chmod 700 "$ZSH_CLAUDE_CONFIG_DIR"
     cat > "$ZSH_CLAUDE_CONFIG_FILE" << EOF
 # zsh-claude configuration
 ZSH_CLAUDE_API_KEY="$ZSH_CLAUDE_API_KEY"
@@ -39,6 +46,7 @@ ZSH_CLAUDE_MODEL="$ZSH_CLAUDE_MODEL"
 ZSH_CLAUDE_MAX_TOKENS="$ZSH_CLAUDE_MAX_TOKENS"
 ZSH_CLAUDE_USE_LITELLM="$ZSH_CLAUDE_USE_LITELLM"
 EOF
+    chmod 600 "$ZSH_CLAUDE_CONFIG_FILE"
 }
 
 # Setup configuration interactively
@@ -127,15 +135,6 @@ _zsh_claude_setup() {
     # Model selection
     printf "\n${ZSH_CLAUDE_BLUE}Choose a Claude model:${ZSH_CLAUDE_NC}\n"
 
-    local current_choice=""
-    case "$ZSH_CLAUDE_MODEL" in
-        "claude-3-5-haiku-20241022") current_choice=" ${ZSH_CLAUDE_GREEN}[Current]${ZSH_CLAUDE_NC}" ;;
-        "claude-3-7-sonnet-20250219") current_choice="" ;;
-        "claude-sonnet-4-20250514") current_choice="" ;;
-        "claude-sonnet-4-5-20250929") current_choice="" ;;
-        "claude-opus-4-1-20250805") current_choice="" ;;
-    esac
-
     printf "1) claude-3-5-haiku-20241022    (Fast, cost-effective)$([[ "$ZSH_CLAUDE_MODEL" == "claude-3-5-haiku-20241022" ]] && printf " ${ZSH_CLAUDE_GREEN}[Current]${ZSH_CLAUDE_NC}" || printf " ${ZSH_CLAUDE_GREEN}[Recommended]${ZSH_CLAUDE_NC}")\n"
     printf "2) claude-3-7-sonnet-20250219   (Balanced performance)$([[ "$ZSH_CLAUDE_MODEL" == "claude-3-7-sonnet-20250219" ]] && printf " ${ZSH_CLAUDE_GREEN}[Current]${ZSH_CLAUDE_NC}")\n"
     printf "3) claude-sonnet-4-20250514     (Most capable, higher cost)$([[ "$ZSH_CLAUDE_MODEL" == "claude-sonnet-4-20250514" ]] && printf " ${ZSH_CLAUDE_GREEN}[Current]${ZSH_CLAUDE_NC}")\n"
@@ -190,28 +189,33 @@ _zsh_claude_setup() {
     return 0
 }
 
-# Check if required dependencies are available
+# Check if required dependencies are available (cached after first success)
 _zsh_claude_check_dependencies() {
-    local missing_deps=()
+    # Skip binary checks if already verified this session
+    if [[ "$_ZSH_CLAUDE_DEPS_CHECKED" != "1" ]]; then
+        local missing_deps=()
 
-    if ! command -v curl &> /dev/null; then
-        missing_deps+=("curl")
+        if ! command -v curl &> /dev/null; then
+            missing_deps+=("curl")
+        fi
+
+        if ! command -v jq &> /dev/null; then
+            missing_deps+=("jq")
+        fi
+
+        if [[ ${#missing_deps[@]} -gt 0 ]]; then
+            printf "${ZSH_CLAUDE_RED}Error: Missing required dependencies:${ZSH_CLAUDE_NC}\n" >&2
+            for dep in "${missing_deps[@]}"; do
+                printf "  - %s\n" "$dep" >&2
+            done
+            printf "\n${ZSH_CLAUDE_YELLOW}Please install the missing dependencies and try again.${ZSH_CLAUDE_NC}\n" >&2
+            return 1
+        fi
+
+        _ZSH_CLAUDE_DEPS_CHECKED="1"
     fi
 
-    if ! command -v jq &> /dev/null; then
-        missing_deps+=("jq")
-    fi
-
-    if [[ ${#missing_deps[@]} -gt 0 ]]; then
-        printf "${ZSH_CLAUDE_RED}Error: Missing required dependencies:${ZSH_CLAUDE_NC}\n" >&2
-        for dep in "${missing_deps[@]}"; do
-            printf "  - %s\n" "$dep" >&2
-        done
-        printf "\n${ZSH_CLAUDE_YELLOW}Please install the missing dependencies and try again.${ZSH_CLAUDE_NC}\n" >&2
-        return 1
-    fi
-
-    # Check API key
+    # Always check API key (can change at runtime via setup)
     if [[ -z "$ZSH_CLAUDE_API_KEY" ]]; then
         printf "${ZSH_CLAUDE_YELLOW}No API key found. Run 'claude-setup' to configure.${ZSH_CLAUDE_NC}\n" >&2
         return 1
@@ -223,17 +227,17 @@ _zsh_claude_check_dependencies() {
 # Show a spinner while waiting for background process
 _zsh_claude_spinner() {
     local pid=$1
-    local message=$2
     local delay=0.15
-    local spinstr='🤔💭🧠✨'
+    local -a frames=('|' '/' '-' '\')
+    local i=0
 
     while kill -0 $pid 2>/dev/null; do
-        local temp=${spinstr#?}
-        printf "%s" "${spinstr:0:1}"
-        local spinstr=$temp${spinstr%"$temp"}
+        printf "%s" "${frames[$((i % 4 + 1))]}"
+        ((i++))
         sleep $delay
-        printf "\b\b"
+        printf "\b"
     done
+    printf " \b"
 }
 
 # Call Claude API for AI assistance
@@ -259,19 +263,19 @@ _zsh_claude_api_call() {
             ]
         }')
 
-    # Use different headers based on whether LiteLLM is enabled
+    # Build headers based on whether LiteLLM is enabled
+    local -a headers=(-H "Content-Type: application/json")
     if [[ "$ZSH_CLAUDE_USE_LITELLM" == "true" ]]; then
-        curl -s -X POST "$ZSH_CLAUDE_API_URL" \
-            -H "Content-Type: application/json" \
-            -H "Authorization: Bearer $ZSH_CLAUDE_API_KEY" \
-            -d "$json_payload" > "$temp_file"
+        headers+=(-H "Authorization: Bearer $ZSH_CLAUDE_API_KEY")
     else
-        curl -s -X POST "$ZSH_CLAUDE_API_URL" \
-            -H "Content-Type: application/json" \
-            -H "x-api-key: $ZSH_CLAUDE_API_KEY" \
-            -H "anthropic-version: 2023-06-01" \
-            -d "$json_payload" > "$temp_file"
+        headers+=(-H "x-api-key: $ZSH_CLAUDE_API_KEY")
+        headers+=(-H "anthropic-version: 2023-06-01")
     fi
+
+    curl -s --connect-timeout 5 --max-time 30 \
+        -X POST "$ZSH_CLAUDE_API_URL" \
+        "${headers[@]}" \
+        -d "$json_payload" > "$temp_file"
 }
 
 # Extract content from Claude API response
@@ -306,7 +310,7 @@ _zsh_claude_strip_markdown() {
     content="${content#"${content%%[![:space:]]*}"}"
     content="${content%"${content##*[![:space:]]}"}"
 
-    echo "$content"
+    printf '%s\n' "$content"
 }
 
 # Generate command suggestions using Claude AI
@@ -325,23 +329,21 @@ zsh_claude_suggest() {
     CURSOR=$#BUFFER
 
     # Create temporary file for output
-    ZSH_CLAUDE_TEMP_FILE=$(mktemp)
+    local temp_file=$(mktemp)
 
     # Save current command to history before replacing
     print -s "$BUFFER"
 
-    local system_prompt="You are a command-line assistant. Given a natural language description or partial command, provide a single, executable shell command that accomplishes the task. Respond with ONLY the command, no explanations or additional text."
-
     # Call Claude API in background (suppress job control output)
     setopt LOCAL_OPTIONS NO_NOTIFY NO_MONITOR
     {
-        _zsh_claude_api_call "$BUFFER" "$system_prompt" "$ZSH_CLAUDE_TEMP_FILE"
+        _zsh_claude_api_call "$BUFFER" "$ZSH_CLAUDE_SUGGEST_PROMPT" "$temp_file"
     } &>/dev/null &
     local api_pid=$!
 
     # Show spinner while waiting
-    echo -e " ${ZSH_CLAUDE_BLUE}Getting suggestion...${ZSH_CLAUDE_NC}  \c"
-    _zsh_claude_spinner $api_pid ""
+    printf " ${ZSH_CLAUDE_BLUE}Getting suggestion...${ZSH_CLAUDE_NC} "
+    _zsh_claude_spinner $api_pid
 
     # Wait for background process to complete
     wait $api_pid
@@ -350,12 +352,12 @@ zsh_claude_suggest() {
     # Extract the suggestion
     local suggestion
     if [[ $exit_code -eq 0 ]]; then
-        suggestion=$(_zsh_claude_extract_content "$ZSH_CLAUDE_TEMP_FILE")
+        suggestion=$(_zsh_claude_extract_content "$temp_file")
         suggestion=$(_zsh_claude_strip_markdown "$suggestion")
     fi
 
     # Clean up temp file
-    rm -f "$ZSH_CLAUDE_TEMP_FILE"
+    rm -f "$temp_file"
 
     # Clear the spinner line
     printf "\r\033[K"
@@ -385,20 +387,18 @@ zsh_claude_explain() {
     fi
 
     # Create temporary file for output
-    ZSH_CLAUDE_TEMP_FILE=$(mktemp)
-
-    local system_prompt="You are a command-line expert. Explain what the given shell command does in clear, concise terms. Include what each part of the command does and any important notes about usage or potential risks."
+    local temp_file=$(mktemp)
 
     # Call Claude API in background (suppress job control output)
     setopt LOCAL_OPTIONS NO_NOTIFY NO_MONITOR
     {
-        _zsh_claude_api_call "$BUFFER" "$system_prompt" "$ZSH_CLAUDE_TEMP_FILE"
+        _zsh_claude_api_call "$BUFFER" "$ZSH_CLAUDE_EXPLAIN_PROMPT" "$temp_file"
     } &>/dev/null &
     local api_pid=$!
 
     # Show spinner while waiting
-    echo -e " ${ZSH_CLAUDE_BLUE}Getting explanation...${ZSH_CLAUDE_NC}  \c"
-    _zsh_claude_spinner $api_pid ""
+    printf " ${ZSH_CLAUDE_BLUE}Getting explanation...${ZSH_CLAUDE_NC} "
+    _zsh_claude_spinner $api_pid
 
     # Wait for background process to complete
     wait $api_pid
@@ -407,11 +407,11 @@ zsh_claude_explain() {
     # Extract the explanation
     local explanation
     if [[ $exit_code -eq 0 ]]; then
-        explanation=$(_zsh_claude_extract_content "$ZSH_CLAUDE_TEMP_FILE")
+        explanation=$(_zsh_claude_extract_content "$temp_file")
     fi
 
     # Clean up temp file
-    rm -f "$ZSH_CLAUDE_TEMP_FILE"
+    rm -f "$temp_file"
 
     # Clear the spinner line
     printf "\r\033[K"
@@ -443,15 +443,6 @@ else
     bindkey "^[|" zsh_claude_explain    # Alt+Shift+\
 fi
 
-# Cleanup function for temporary files
-_zsh_claude_cleanup() {
-    if [[ -n "$ZSH_CLAUDE_TEMP_FILE" && -f "$ZSH_CLAUDE_TEMP_FILE" ]]; then
-        rm -f "$ZSH_CLAUDE_TEMP_FILE"
-    fi
-}
-
-# Set up cleanup trap
-trap _zsh_claude_cleanup EXIT
 
 # Manual command functions
 claude-suggest() {
@@ -466,11 +457,9 @@ claude-suggest() {
     fi
 
     local temp_file=$(mktemp)
-    local system_prompt="You are a command-line assistant. Given a natural language description, provide a single, executable shell command that accomplishes the task. Respond with ONLY the command, no explanations or additional text."
-
     printf "${ZSH_CLAUDE_BLUE}Getting suggestion for: %s${ZSH_CLAUDE_NC}\n" "$query"
 
-    _zsh_claude_api_call "$query" "$system_prompt" "$temp_file"
+    _zsh_claude_api_call "$query" "$ZSH_CLAUDE_SUGGEST_PROMPT" "$temp_file"
     local suggestion=$(_zsh_claude_extract_content "$temp_file")
     suggestion=$(_zsh_claude_strip_markdown "$suggestion")
     rm -f "$temp_file"
@@ -494,11 +483,9 @@ claude-explain() {
     fi
 
     local temp_file=$(mktemp)
-    local system_prompt="You are a command-line expert. Explain what the given shell command does in clear, concise terms. Include what each part of the command does and any important notes about usage or potential risks."
-
     printf "${ZSH_CLAUDE_BLUE}Getting explanation for: %s${ZSH_CLAUDE_NC}\n" "$command"
 
-    _zsh_claude_api_call "$command" "$system_prompt" "$temp_file"
+    _zsh_claude_api_call "$command" "$ZSH_CLAUDE_EXPLAIN_PROMPT" "$temp_file"
     local explanation=$(_zsh_claude_extract_content "$temp_file")
     rm -f "$temp_file"
 
@@ -520,7 +507,7 @@ _zsh_claude_load_config
 if [[ -z "$POWERLEVEL9K_INSTANT_PROMPT" || "$ZSH_CLAUDE_VERBOSE" == "1" ]]; then
     printf "${ZSH_CLAUDE_GREEN}✓ zsh-claude loaded${ZSH_CLAUDE_NC}\n"
 
-    if _zsh_claude_check_dependencies; then
+    if [[ -n "$ZSH_CLAUDE_API_KEY" ]]; then
         printf "  ${ZSH_CLAUDE_GREEN}✓ Ready to use${ZSH_CLAUDE_NC}\n"
         if [[ "$OSTYPE" == "darwin"* ]]; then
             printf "  ${ZSH_CLAUDE_BLUE}Keybindings: Option+\\ (suggest), Option+Shift+\\ (explain)${ZSH_CLAUDE_NC}\n"
